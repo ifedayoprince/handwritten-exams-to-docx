@@ -47,8 +47,4 @@ function mergeConfig(nextConfig, userConfig) {
   }
 }
 
-export default withPWA({
-  dest: "public",
-  register: true,
-  skipWaiting: true,
-})(nextConfig)
+export default nextConfig;
