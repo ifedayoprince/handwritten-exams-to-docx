@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     // Process all images in a single API call
     try {
       const response = await openai.chat.completions.create({
-        model: "gpt-4o-2024-08-06",
+        model: "gpt-4.1-mini",
         messages: [
           {
             role: "system",
