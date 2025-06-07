@@ -24,7 +24,10 @@ export default function Home() {
     setImages(reorderedImages)
   }
 
-  const handleDone = async (documentName: string) => {
+  const handleDone = async (
+    documentName: string,
+    documentImages: { id: string; dataUrl: string }[]
+  ) => {
     try {
       setIsProcessing(true)
       toast({
@@ -38,7 +41,7 @@ export default function Home() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          images: images.map((img) => img.dataUrl),
+          images: documentImages.map((img) => img.dataUrl),
           documentName,
         }),
       })
@@ -53,9 +56,6 @@ export default function Home() {
         title: "Success!",
         description: `Document saved as ${data.filename}`,
       })
-
-      // Clear images after successful processing
-      setImages([])
     } catch (error) {
       console.error("Error processing images:", error)
       toast({
@@ -63,6 +63,7 @@ export default function Home() {
         description: "Failed to process images. Please try again.",
         variant: "destructive",
       })
+      throw error; // Re-throw to handle in the queue
     } finally {
       setIsProcessing(false)
     }

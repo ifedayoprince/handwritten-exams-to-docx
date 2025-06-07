@@ -50,7 +50,7 @@ const DEFAULT_NUMBERINGS: ILevelsOptions[] = [
   {
     level: 1,
     format: LevelFormat.LOWER_LETTER,
-    text: "(%1) ",
+    text: "(%2) ",
     alignment: AlignmentType.START,
     style: {
       paragraph: {
@@ -189,7 +189,7 @@ export const mdastToDocx = async (
   const { nodes } = convertNodes(node.children, {
     deco: {},
     images,
-    indent: 0,
+    indent: 0
   });
   const doc = new Document({
     title,
@@ -260,7 +260,7 @@ const convertNodes = (
       case "listItem":
         invariant(false, "unreachable");
       case "table":
-        results.push(buildTable(node, ctx));
+        results.push(buildTable());
         break;
       case "tableRow":
         invariant(false, "unreachable");
@@ -421,8 +421,7 @@ const buildList = (
 ) => {
   const list: ListInfo = {
     level: ctx.list ? ctx.list.level + 1 : 0,
-    // ordered: !!ordered,
-    ordered: true
+    ordered: true,
   };
   return children.flatMap((item) => {
     return buildListItem(item, {
@@ -445,52 +444,9 @@ const buildListItem = (
   return nodes;
 };
 
-const buildTable = ({ children, align }: mdast.Table, ctx: Context) => {
-  const cellAligns: string[] | undefined = align?.map((a) => {
-    switch (a) {
-      case "left":
-        return AlignmentType.LEFT;
-      case "right":
-        return AlignmentType.RIGHT;
-      case "center":
-        return AlignmentType.CENTER;
-      default:
-        return AlignmentType.LEFT;
-    }
-  });
-
-  return new Table({
-    rows: children.map((r) => {
-      return buildTableRow(r, ctx, cellAligns);
-    }),
-  });
-};
-
-const buildTableRow = (
-  { children }: mdast.TableRow,
-  ctx: Context,
-  cellAligns: string[] | undefined
-) => {
-  return new TableRow({
-    children: children.map((c, i) => {
-      return buildTableCell(c, ctx, cellAligns?.[i]);
-    }),
-  });
-};
-
-const buildTableCell = (
-  { children }: mdast.TableCell,
-  ctx: Context,
-  align: string | undefined
-) => {
-  const { nodes } = convertNodes(children, ctx);
-  return new TableCell({
-    children: [
-      new Paragraph({
-        alignment: align as any,
-        children: nodes,
-      }),
-    ],
+const buildTable = () => {
+  return new Paragraph({
+    children: [buildText("[TABLE]", { strong: true })],
   });
 };
 

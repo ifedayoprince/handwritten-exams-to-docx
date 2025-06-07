@@ -14,10 +14,18 @@ const plugin: Plugin<[DocxOptions?]> = function (opts: Partial<DocxOptions> = {}
   };
 
   return async (node) => {
+    // Handle images
     const imageList: mdast.Image[] = [];
     visit(node, "image", (node) => {
       imageList.push(node);
     });
+
+    // Handle math expressions
+    visit(node, ["math", "inlineMath"], (node) => {
+      // Math nodes are handled directly by the transformer
+      // No preprocessing needed
+    });
+
     if (imageList.length === 0) {
       return node;
     }

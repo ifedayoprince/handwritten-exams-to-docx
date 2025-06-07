@@ -10,7 +10,8 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { ImageGallery } from "./image-gallery"
 import { Camera, FolderOpen, Check, Lightbulb } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { DragDropContext, Droppable, Draggable, DropResult, DroppableProvided, DraggableProvided } from "react-beautiful-dnd"
+import { DndProvider, useDrag, useDrop } from "react-dnd"
+import { HTML5Backend } from "react-dnd-html5-backend"
 
 interface CameraCaptureProps {
   onCapture: (dataUrl: string) => void
@@ -21,40 +22,72 @@ interface CameraCaptureProps {
   isProcessing?: boolean
 }
 
-const DraggableImage = ({ image, index, onRemove }: {
+const DraggableImage = ({ image, index, onRemove, onReorder, moveImage }: {
   image: { id: string; dataUrl: string }
   index: number
   onRemove: (id: string) => void
+  onReorder: (reorderedImages: { id: string; dataUrl: string }[]) => void
+  moveImage: (fromIndex: number, toIndex: number) => { id: string; dataUrl: string }[]
 }) => {
+  const dragDropRef = useRef<HTMLDivElement>(null);
+
+  const [{ isDragging }, drag] = useDrag({
+    type: "image",
+    item: { id: image.id, index },
+    collect: (monitor) => ({
+      isDragging: monitor.isDragging(),
+    }),
+  })
+
+  const [, drop] = useDrop({
+    accept: "image",
+    hover(item: { id: string; index: number }, monitor) {
+      if (!monitor.isOver({ shallow: true })) return
+      if (item.index === index) return
+
+      const hoverBoundingRect = dragDropRef.current?.getBoundingClientRect()
+      if (!hoverBoundingRect) return
+
+      const hoverMiddleY = (hoverBoundingRect.bottom - hoverBoundingRect.top) / 2
+      const clientOffset = monitor.getClientOffset()
+      if (!clientOffset) return
+
+      const hoverClientY = clientOffset.y - hoverBoundingRect.top
+
+      // Only perform the move when the mouse has crossed half of the items height
+      if (item.index < index && hoverClientY < hoverMiddleY) return
+      if (item.index > index && hoverClientY > hoverMiddleY) return
+
+      onReorder(moveImage(item.index, index))
+      item.index = index
+    },
+  })
+
+  drag(dragDropRef)
+  drop(dragDropRef)
+
   return (
-    <Draggable draggableId={image.id} index={index}>
-      {(provided: DraggableProvided) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.draggableProps}
-          className="relative aspect-square bg-zinc-900 rounded-lg overflow-hidden group"
+    <div
+      ref={dragDropRef}
+      className="relative aspect-square bg-zinc-900 rounded-lg overflow-hidden group"
+      style={{ opacity: isDragging ? 0.5 : 1 }}
+    >
+      <img src={image.dataUrl} alt="Captured" className="w-full h-full object-cover" />
+      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          className="absolute top-2 right-2 p-1 bg-red-500/80 hover:bg-red-600 rounded-full z-20"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(image.id);
+          }}
         >
-          <img src={image.dataUrl} alt="Captured" className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              className="absolute top-2 right-2 p-1 bg-red-500/80 hover:bg-red-600 rounded-full z-20"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove(image.id);
-              }}
-            >
-              <X className="h-4 w-4 text-white" />
-            </button>
-            <div
-              {...provided.dragHandleProps}
-              className="absolute inset-0 flex items-center justify-center cursor-move z-10"
-            >
-              <GripVertical className="h-6 w-6 text-white/80" />
-            </div>
-          </div>
+          <X className="h-4 w-4 text-white" />
+        </button>
+        <div className="absolute inset-0 flex items-center justify-center cursor-move z-10">
+          <GripVertical className="h-6 w-6 text-white/80" />
         </div>
-      )}
-    </Draggable>
+      </div>
+    </div>
   )
 }
 
@@ -68,21 +101,16 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
     const [isCapturing, setIsCapturing] = useState(false)
     const [documentName, setDocumentName] = useState("Untitled Document")
     const [isEditingName, setIsEditingName] = useState(false)
+    const [processingQueue, setProcessingQueue] = useState<Array<{
+      documentName: string;
+      images: { id: string; dataUrl: string }[];
+    }>>([])
+    const [isProcessingQueue, setIsProcessingQueue] = useState(false)
     const { toast } = useToast()
     const isMobile = useMobile()
 
-    const handleDragEnd = (result: DropResult) => {
-      if (!result.destination || result.source.index === result.destination.index) return
-
-      const items = Array.from(images)
-      const [reorderedItem] = items.splice(result.source.index, 1)
-      items.splice(result.destination.index, 0, reorderedItem)
-
-      onReorder(items)
-    }
-
     const handleCapture = () => {
-      if (isProcessing || !captureRef.current || isEditingName) return
+      if (!captureRef.current || isEditingName) return
 
       setIsCapturing(true)
       const dataUrl = captureRef.current.captureImage()
@@ -97,21 +125,74 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
       setTimeout(() => setIsCapturing(false), 150)
     }
 
-    const handleDone = async () => {
-      if (isProcessing || images.length === 0) return
+    const handleDone = () => {
+      if (images.length === 0) return;
 
-      // Send data to parent
-      onDone(documentName, images)
+      const currentImages = [...images];
+      const currentName = documentName;
 
-      // Reset local state
-      setDocumentName("Untitled Document")
-      setIsEditingName(false)
+      // Add current document to queue
+      setProcessingQueue(prev => [...prev, {
+        documentName: currentName,
+        images: currentImages
+      }]);
+
+      // Reset the current state
+      currentImages.forEach(img => onRemove(img.id));
+      setDocumentName("Untitled Document");
+      setIsEditingName(false);
+
+      toast({
+        title: "Added to Queue",
+        description: `"${currentName}" added to processing queue`,
+        duration: 2000,
+      });
     }
+
+    // Process queue in background
+    useEffect(() => {
+      const processQueue = async () => {
+        if (isProcessingQueue || processingQueue.length === 0) return;
+
+        setIsProcessingQueue(true);
+        const nextItem = processingQueue[0];
+
+        try {
+          await onDone(nextItem.documentName, nextItem.images);
+          console.log("Done processing document")
+          setProcessingQueue(prev => prev.slice(1));
+          setIsProcessingQueue(false);
+          toast({
+            title: "Document Processed",
+            description: `Successfully processed "${nextItem.documentName}"`,
+            duration: 3000,
+          });
+        } catch (error) {
+          setProcessingQueue(prev => prev.slice(1));
+          setIsProcessingQueue(false);
+          toast({
+            title: "Processing Failed",
+            description: `Failed to process "${nextItem.documentName}". Please try again.`,
+            variant: "destructive",
+            duration: 5000,
+          });
+        }
+
+        // Process next item in queue if any
+        if (processingQueue.length > 1) {
+          setTimeout(() => {
+            processQueue();
+          }, 1000); // Wait 1 second before processing next item
+        }
+      };
+
+      processQueue();
+    }, [processingQueue, isProcessingQueue, onDone, toast]);
 
     useEffect(() => {
       const handleKeyPress = (e: KeyboardEvent) => {
-        // Don't capture space when editing document name or processing
-        if (isEditingName || isProcessing) return
+        // Only prevent capture when editing document name to avoid typing issues
+        if (isEditingName) return
 
         if (e.code === 'Space') {
           e.preventDefault()
@@ -121,7 +202,7 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
 
       window.addEventListener('keydown', handleKeyPress)
       return () => window.removeEventListener('keydown', handleKeyPress)
-    }, [isProcessing, isEditingName])
+    }, [isEditingName])
 
     const captureRef = useRef<{ captureImage: () => string | null }>({
       captureImage: () => {
@@ -186,6 +267,13 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
       }
     }, [toast])
 
+    const moveImage = (fromIndex: number, toIndex: number) => {
+      const items = Array.from(images)
+      const [movedItem] = items.splice(fromIndex, 1)
+      items.splice(toIndex, 0, movedItem)
+      return items
+    }
+
     return (
       <div className="flex h-screen overflow-hidden bg-black">
         {/* Left Panel - Scrollable Content */}
@@ -231,29 +319,38 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
             </div>
           </div>
 
+          {/* Queue Status */}
+          {processingQueue.length > 0 && (
+            <div className="px-6 py-2 border-b border-white/10 bg-white/5">
+              <p className="text-white/60 text-sm">
+                {isProcessingQueue ? (
+                  <span className="flex items-center">
+                    <Loader2 className="h-3 w-3 animate-spin mr-2" />
+                    Processing {processingQueue[0].documentName}
+                  </span>
+                ) : (
+                  `Queue: ${processingQueue.length} document${processingQueue.length === 1 ? '' : 's'}`
+                )}
+              </p>
+            </div>
+          )}
+
           {/* Scrollable Image Grid */}
           <div className="flex-1 overflow-y-auto p-6">
-            <DragDropContext onDragEnd={handleDragEnd}>
-              <Droppable droppableId="images" type="image">
-                {(provided: DroppableProvided) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className="grid grid-cols-2 gap-4 auto-rows-max"
-                  >
-                    {images.map((image, index) => (
-                      <DraggableImage
-                        key={image.id}
-                        image={image}
-                        index={index}
-                        onRemove={onRemove}
-                      />
-                    ))}
-                    {provided.placeholder}
-                  </div>
-                )}
-              </Droppable>
-            </DragDropContext>
+            <DndProvider backend={HTML5Backend}>
+              <div className="grid grid-cols-2 gap-4 auto-rows-max">
+                {images.map((image, index) => (
+                  <DraggableImage
+                    key={image.id}
+                    image={image}
+                    index={index}
+                    onRemove={onRemove}
+                    onReorder={onReorder}
+                    moveImage={moveImage}
+                  />
+                ))}
+              </div>
+            </DndProvider>
           </div>
 
           {/* Fixed Bottom Controls */}
@@ -264,19 +361,10 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
             <Button
               className="w-full bg-white text-black hover:bg-white/90 transition-all duration-200"
               onClick={handleDone}
-              disabled={isProcessing || images.length === 0}
+              disabled={images.length === 0}
             >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Check className="mr-2 h-4 w-4" />
-                  Done ({images.length} images)
-                </>
-              )}
+              <Check className="mr-2 h-4 w-4" />
+              Done ({images.length} images)
             </Button>
           </div>
         </div>
@@ -328,7 +416,6 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
                   "backdrop-blur-sm"
                 )}
                 onClick={() => setFlashlightOn(!flashlightOn)}
-                disabled={isProcessing}
               >
                 <Lightbulb className={cn("h-5 w-5", flashlightOn ? "text-white" : "text-zinc-300")} />
               </Button>
@@ -342,7 +429,6 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
                   "backdrop-blur-sm"
                 )}
                 onClick={handleCapture}
-                disabled={isProcessing}
               >
                 <Camera className="h-8 w-8 text-white" />
               </Button>

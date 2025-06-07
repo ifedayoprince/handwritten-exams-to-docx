@@ -2,31 +2,22 @@ import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 import { unified } from "unified"
 import remarkParse from "remark-parse"
+import remarkMath from "remark-math"
 import remarkDocx from '@/md-to-docx'
 import * as path from "path"
 import * as os from "os"
 import * as fs from "fs"
 import sharp from "sharp"
+import { USER_PROMPT } from "@/app/utils/prompt"
 
-// // Initialize OpenAI client
-// const openai = new OpenAI({
-//   apiKey: process.env.OPENAI_API_KEY,
-// })
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+})
 
-// In-memory log storage
-const logs: { timestamp: string; message: string; type: "info" | "error" }[] = []
 const processedFiles: string[] = []
 
-// Add a log entry
 function addLog(message: string, type: "info" | "error" = "info") {
-  // const timestamp = new Date().toISOString()
-  // logs.unshift({ timestamp, message, type })
-
-  // // Keep only the last 100 logs
-  // if (logs.length > 100) {
-  //   logs.pop()
-  // }
-
   console.log(`[${type.toUpperCase()}] ${message}`)
 }
 
@@ -55,13 +46,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No images provided" }, { status: 400 })
     }
 
-    // if (!process.env.OPENAI_API_KEY) {
-    //   addLog("OpenAI API key not configured", "error")
-    //   return NextResponse.json(
-    //     { error: "OpenAI API key not configured" },
-    //     { status: 500 }
-    //   )
-    // }
+    if (!process.env.OPENAI_API_KEY) {
+      addLog("OpenAI API key not configured", "error")
+      return NextResponse.json(
+        { error: "OpenAI API key not configured" },
+        { status: 500 }
+      )
+    }
 
     addLog(`Processing ${images.length} images for document: ${documentName}`)
 
@@ -92,60 +83,42 @@ export async function POST(req: NextRequest) {
 
     // Process all images in a single API call
     try {
-      // const response = await openai.chat.completions.create({
-      //   model: "gpt-4-vision-preview",
-      //   messages: [
-      //     {
-      //       role: "system",
-      //       content: `You are an expert OCR system specialized in converting handwritten exam questions to properly formatted Markdown.
-      //         Your task is to extract all text from the provided images and format them as clean Markdown.
-      //         Pay special attention to mathematical notation, tables, and formatting.
-      //         Process each image in order and include clear page separators.`,
-      //     },
-      //     {
-      //       role: "user",
-      //       content: [
-      //         {
-      //           type: "text",
-      //           text: `Extract all the text from these images and format them as Markdown.
-      //             For mathematical equations, use LaTeX syntax with double dollar signs ($$) for display math.
-      //             For tables, use proper Markdown table syntax.
-      //             If there are any diagrams or graphics that cannot be transcribed, indicate with [GRAPHIC].
-      //             Preserve the original formatting as much as possible.
-      //             Include a page number header for each image processed.`,
-      //         },
-      //         ...validImages.map((base64Image) => ({
-      //           type: "image_url",
-      //           image_url: {
-      //             url: `data:image/jpeg;base64,${base64Image}`,
-      //           },
-      //         })),
-      //       ],
-      //     },
-      //   ],
-      //   // max_tokens: 4096,
-      // })
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-2024-08-06",
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert OCR system specialized in converting handwritten exam questions to properly formatted Markdown.
+              Your task is to extract all text from the provided images and format them as clean Markdown to be converted to DOCX later.
+              Process each image in order and include clear page separators.`,
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: USER_PROMPT,
+              },
+              ...validImages.map((base64Image) => ({
+                type: "image_url",
+                image_url: {
+                  url: `data:image/jpeg;base64,${base64Image}`,
+                },
+              } as any)),
+            ],
+          },
+        ],
+        // max_tokens: 4096,
+      })
 
-      // const extractedText = response.choices[0]?.message?.content
-      // if (!extractedText) {
-      //   throw new Error("No text extracted from images")
-      // }
+      const extractedText = response.choices[0]?.message?.content
+      if (!extractedText) {
+        throw new Error("No text extracted from images")
+      }
 
-      const extractedText = `# Final Exam - Mathematics 101
-
-## **Section A: Multiple Choice Questions (MCQs)**
-
-1. What is the derivative of \( $$f(x) = 3x^2 + 5x - 2$$ \)?
-    - \( 6x + 5 \)
-    - \( 6x - 5 \)
-    - \( 3x + 5 \)
-    - \( 2x + 5 \)
-
-`
-
-      // Convert markdown to DOCX using remark
       const docx = await unified()
         .use(remarkParse)
+        .use(remarkMath)
         .use(remarkDocx)
         .process(extractedText);
       const docxBuffer = await docx.result;
@@ -155,12 +128,20 @@ export async function POST(req: NextRequest) {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
       const filename = `${sanitizedName}_${timestamp}.docx`
 
-      const downloadsPath = path.join(os.homedir(), "Downloads")
-      const filePath = path.join(downloadsPath, filename)
+      const docxPath = path.join(os.homedir(), "Downloads/Handwritexam/DOCX")
+      const markdownPath = path.join(os.homedir(), "Downloads/Handwritexam/Markdown")
+      const filePath = path.join(docxPath, filename)
+      const markdownFilePath = path.join(markdownPath, `${sanitizedName}_${timestamp}.md`)
 
-      addLog("Saving file")
+      addLog("Saving files to " + filePath)
+
+      if (!fs.existsSync(docxPath)) {
+        fs.mkdirSync(docxPath, { recursive: true })
+        fs.mkdirSync(markdownPath, { recursive: true })
+      }
 
       fs.writeFileSync(filePath, docxBuffer as Buffer)
+      fs.writeFileSync(markdownFilePath, extractedText)
 
       addLog(`Document saved: ${filename}`)
       processedFiles.unshift(filename)
