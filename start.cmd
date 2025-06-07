@@ -21,6 +21,7 @@ start http://localhost:3000
 
 :: Create and open the DOCX directory
 if not exist "%USERPROFILE%\Downloads\Handwritexam\DOCX" mkdir "%USERPROFILE%\Downloads\Handwritexam\DOCX"
+if not exist "%USERPROFILE%\Downloads\Handwritexam\Markdown" mkdir "%USERPROFILE%\Downloads\Handwritexam\Markdown"
 start explorer.exe "%USERPROFILE%\Downloads\Handwritexam\DOCX"
 
 :end

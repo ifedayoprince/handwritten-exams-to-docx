@@ -3,15 +3,21 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { useMobile } from "@/hooks/use-mobile"
-import { Loader2, GripVertical, X, Edit2 } from "lucide-react"
+import { Loader2, GripVertical, X, Edit2, Camera, FolderOpen, Check, Lightbulb } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { ImageGallery } from "./image-gallery"
-import { Camera, FolderOpen, Check, Lightbulb } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { DndProvider, useDrag, useDrop } from "react-dnd"
 import { HTML5Backend } from "react-dnd-html5-backend"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 interface CameraCaptureProps {
   onCapture: (dataUrl: string) => void
@@ -101,6 +107,8 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
     const [isCapturing, setIsCapturing] = useState(false)
     const [documentName, setDocumentName] = useState("Untitled Document")
     const [isEditingName, setIsEditingName] = useState(false)
+    const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([])
+    const [selectedCamera, setSelectedCamera] = useState<string>("")
     const [processingQueue, setProcessingQueue] = useState<Array<{
       documentName: string;
       images: { id: string; dataUrl: string }[];
@@ -108,6 +116,86 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
     const [isProcessingQueue, setIsProcessingQueue] = useState(false)
     const { toast } = useToast()
     const isMobile = useMobile()
+
+    // Function to get available cameras
+    const getAvailableCameras = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const videoDevices = devices.filter(device => device.kind === 'videoinput')
+        setAvailableCameras(videoDevices)
+
+        // Set default camera if none selected
+        if (!selectedCamera && videoDevices.length > 0) {
+          setSelectedCamera(videoDevices[0].deviceId)
+        }
+      } catch (err) {
+        console.error("Error getting cameras:", err)
+        toast({
+          title: "Camera Error",
+          description: "Could not get list of cameras",
+          variant: "destructive",
+        })
+      }
+    }
+
+    // Start camera with selected device
+    const startCamera = async () => {
+      if (!selectedCamera) return
+
+      try {
+        setIsLoading(true)
+        setError(null)
+
+        const constraints: MediaStreamConstraints = {
+          video: {
+            deviceId: { exact: selectedCamera },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+        }
+
+      } catch (err) {
+        console.error("Error accessing camera:", err)
+        setError("Could not access camera. Please ensure you have granted camera permissions.")
+        toast({
+          title: "Camera Error",
+          description: "Could not access camera. Please check permissions.",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    // Handle camera change
+    const handleCameraChange = (deviceId: string) => {
+      setSelectedCamera(deviceId)
+    }
+
+    // Get cameras on mount and when permissions change
+    useEffect(() => {
+      getAvailableCameras()
+
+      // Listen for device changes
+      navigator.mediaDevices.addEventListener('devicechange', getAvailableCameras)
+
+      return () => {
+        navigator.mediaDevices.removeEventListener('devicechange', getAvailableCameras)
+      }
+    }, [])
+
+    // Start camera when selection changes
+    useEffect(() => {
+      if (selectedCamera) {
+        startCamera()
+      }
+    }, [selectedCamera])
 
     const handleCapture = () => {
       if (!captureRef.current || isEditingName) return
@@ -223,50 +311,6 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
 
     useImperativeHandle(ref, () => captureRef.current)
 
-    useEffect(() => {
-      let stream: MediaStream | null = null
-
-      const startCamera = async () => {
-        try {
-          setIsLoading(true)
-          setError(null)
-
-          const constraints: MediaStreamConstraints = {
-            video: {
-              facingMode: "environment",
-              width: { ideal: 1920 },
-              height: { ideal: 1080 }
-            },
-          }
-
-          stream = await navigator.mediaDevices.getUserMedia(constraints)
-
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream
-          }
-
-        } catch (err) {
-          console.error("Error accessing camera:", err)
-          setError("Could not access camera. Please ensure you have granted camera permissions.")
-          toast({
-            title: "Camera Error",
-            description: "Could not access camera. Please check permissions.",
-            variant: "destructive",
-          })
-        } finally {
-          setIsLoading(false)
-        }
-      }
-
-      startCamera();
-
-      return () => {
-        if (stream) {
-          stream.getTracks().forEach((track) => track.stop())
-        }
-      }
-    }, [toast])
-
     const moveImage = (fromIndex: number, toIndex: number) => {
       const items = Array.from(images)
       const [movedItem] = items.splice(fromIndex, 1)
@@ -317,6 +361,29 @@ export const CameraCapture = forwardRef<{ captureImage: () => string | null }, C
               )}
               <span className="text-white/40 text-sm">{images.length} images</span>
             </div>
+          </div>
+
+          {/* Camera Selection */}
+          <div className="px-6 py-4 border-b border-white/10">
+            <Select
+              value={selectedCamera}
+              onValueChange={handleCameraChange}
+            >
+              <SelectTrigger className="w-full bg-white/5 border-white/10 text-white">
+                <SelectValue placeholder="Select camera" />
+              </SelectTrigger>
+              <SelectContent className="bg-zinc-900 border-white/10">
+                {availableCameras.map((camera) => (
+                  <SelectItem
+                    key={camera.deviceId}
+                    value={camera.deviceId}
+                    className="text-white hover:bg-white/10"
+                  >
+                    {camera.label || `Camera ${camera.deviceId.slice(0, 5)}...`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Queue Status */}
