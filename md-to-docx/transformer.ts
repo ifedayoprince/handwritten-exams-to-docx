@@ -239,7 +239,7 @@ const convertNodes = (
   const results: DocxContent[] = [];
   let footnotes: Footnotes = {};
   for (const node of nodes) {
-    // console.log(node.depth, node.type, node?.children?.map(c => c.type + " " + c.value));
+    // console.log(node, node.type, node?.children?.map(c => c.type + " " + c.value));
 
     switch (node.type) {
       case "paragraph":
@@ -351,6 +351,8 @@ const buildParagraph = ({ children }: mdast.Paragraph, ctx: Context) => {
       })
     );
   }
+  // console.log(children[0], list)
+
   return new Paragraph({
     children: nodes,
     indent:
@@ -359,19 +361,23 @@ const buildParagraph = ({ children }: mdast.Paragraph, ctx: Context) => {
           start: convertInchesToTwip(INDENT * ctx.indent),
         }
         : undefined,
-    ...(list &&
-      (list.ordered
-        ? {
-          numbering: {
-            reference: ORDERED_LIST_REF,
-            level: list.level,
-          },
-        }
-        : {
-          bullet: {
-            level: list.level,
-          },
-        })),
+    numbering: {
+      reference: ORDERED_LIST_REF,
+      level: list ? list.level : 0,
+    }
+    // ...(list &&
+    //   (list.ordered
+    //     ? {
+    //       numbering: {
+    //         reference: ORDERED_LIST_REF,
+    //         level: list.level,
+    //       },
+    //     }
+    //     : {
+    //       bullet: {
+    //         level: list.level,
+    //       },
+    //     })),
   });
 };
 
@@ -416,18 +422,21 @@ const buildBlockquote = ({ children }: mdast.Blockquote, ctx: Context) => {
 };
 
 const buildList = (
-  { children, ordered, start: _start, spread: _spread }: mdast.List,
+  { children, ordered, start: _start, spread: _spread, data }: mdast.List,
   ctx: Context
 ) => {
-  const list: ListInfo = {
-    level: ctx.list ? ctx.list.level + 1 : 0,
-    ordered: true,
-  };
-  return children.flatMap((item) => {
-    return buildListItem(item, {
+  const level = ctx.list ? ctx.list.level + 1 : 0;
+  return children.flatMap((item, i) => {
+    // console.log(i, level, children.map(c => c.type), children[0].children[0].children)
+    
+    const nodes = buildListItem(item, {
       ...ctx,
-      list,
+      list: {
+        ordered: true,
+        level: children.length > 1 ? level + 1 : level
+      },
     });
+    return nodes;
   });
 };
 
@@ -435,12 +444,13 @@ const buildListItem = (
   { children, checked, spread: _spread }: mdast.ListItem,
   ctx: Context
 ) => {
-  const ctx2 = {
-    ...ctx,
-    ...(ctx.list && { list: { ...ctx.list, checked: checked ?? undefined } }),
-  };
-
-  const { nodes } = convertNodes(children, ctx2);
+  // const ctx2 = {
+  //   ...ctx,
+  //   ...(ctx.list && {
+  //     list: { ...ctx.list, checked: checked ?? undefined }
+  //   })
+  // };
+  const { nodes } = convertNodes(children, ctx);
   return nodes;
 };
 

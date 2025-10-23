@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
           return await processImage(dataUrl)
         } catch (error) {
           addLog(`Error processing image: ${error}`, "error")
-          return null
+          return null;
         }
       })
     )
@@ -84,21 +84,16 @@ export async function POST(req: NextRequest) {
     // Process all images in a single API call
     try {
       const response = await openai.chat.completions.create({
-        model: "gpt-4.1-mini",
+        model: "gpt-5-mini",
+        reasoning_effort: "minimal",
         messages: [
           {
             role: "system",
-            content: `You are an expert OCR system specialized in converting handwritten exam questions to properly formatted Markdown.
-              Your task is to extract all text from the provided images and format them as clean Markdown to be converted to DOCX later.
-              Process each image in order and include clear page separators.`,
+            content: USER_PROMPT,
           },
           {
             role: "user",
             content: [
-              {
-                type: "text",
-                text: USER_PROMPT,
-              },
               ...validImages.map((base64Image) => ({
                 type: "image_url",
                 image_url: {

@@ -11,6 +11,7 @@
   "dependencies": {
     "@ai-sdk/openai": "latest",
     "@hookform/resolvers": "^3.9.1",
+    "@mohtasham/md-to-docx": "^2.4.0",
     "@radix-ui/react-accordion": "^1.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.4",
     "@radix-ui/react-aspect-ratio": "^1.1.1",
@@ -58,7 +59,7 @@
     "next": "15.1.0",
     "next-pwa": "^5.6.0",
     "next-themes": "^0.4.4",
-    "openai": "^4.28.0",
+    "openai": "^6.6.0",
     "os": "latest",
     "path": "latest",
     "react": "^19",
